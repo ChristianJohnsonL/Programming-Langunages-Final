@@ -1,0 +1,164 @@
+(* ================================================================
+   !photoMath DSL — Formal EBNF Grammar
+
+   Scope: Single-variable polynomial factoring (degree ≤ 2)
+          and two-equation linear systems in two variables.
+
+   Notation:
+     =      definition
+     |      alternation
+     [ ]    optional (0 or 1 occurrences)
+     { }    repetition (0 or more occurrences)
+     ( )    grouping
+     " "    terminal string / keyword
+     (* *)  comment
+   ================================================================ *)
+
+
+(* ----------------------------------------------------------------
+   TOP-LEVEL PROGRAM
+   A program is one statement, optionally surrounded by whitespace.
+   ---------------------------------------------------------------- *)
+
+program        = statement EOF ;
+
+statement      = factor_stmt
+               | solve_stmt ;
+
+
+(* ----------------------------------------------------------------
+   STATEMENTS
+   ---------------------------------------------------------------- *)
+
+(* "factor x^2 + 5x + 6" *)
+factor_stmt    = "factor" expression ;
+
+(* "solve 2x + y = 5 and x - y = 1" *)
+solve_stmt     = "solve" equation "and" equation ;
+
+
+(* ----------------------------------------------------------------
+   EQUATION
+   An equation is two expressions separated by '='.
+   ---------------------------------------------------------------- *)
+
+equation       = expression "=" expression ;
+
+
+(* ----------------------------------------------------------------
+   EXPRESSIONS  (operator-precedence encoded by grammar hierarchy)
+
+   Precedence, lowest → highest:
+     1. Addition / Subtraction      (left-associative)
+     2. Multiplication / Division   (left-associative)
+     3. Exponentiation              (right-associative)
+     4. Unary minus                 (prefix)
+     5. Implicit multiplication     (NUMBER directly before VARIABLE or '(')
+     6. Primary atoms               (number, variable, parenthesised expr)
+   ---------------------------------------------------------------- *)
+
+expression     = term { ( "+" | "-" ) term } ;
+
+term           = unary { ( "*" | "/" ) unary } ;
+
+(* Unary minus binds tighter than * / but looser than ^ *)
+unary          = "-" unary
+               | power ;
+
+(* Exponentiation is right-associative: a^b^c = a^(b^c) *)
+power          = implicit_mul [ "^" unary ] ;
+
+(* Implicit multiplication: 2x  →  2 * x
+                             3(x+1) → 3 * (x+1)
+   Implemented in the lexer by inserting a synthetic STAR token
+   whenever NUMBER is immediately followed by VARIABLE or "(" *)
+implicit_mul   = atom ;
+
+atom           = number
+               | variable
+               | "(" expression ")" ;
+
+
+(* ----------------------------------------------------------------
+   TERMINALS
+   ---------------------------------------------------------------- *)
+
+number         = [ "-" ] digits [ "." digits ] ;
+
+(* digits is a non-empty sequence of decimal digit characters *)
+digits         = digit { digit } ;
+
+digit          = "0" | "1" | "2" | "3" | "4"
+               | "5" | "6" | "7" | "8" | "9" ;
+
+(* A variable is a single lowercase ASCII letter.
+   The grammar restricts variables to x and y in practice,
+   but the lexer accepts any lowercase letter. *)
+variable       = lowercase_letter ;
+
+lowercase_letter = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h"
+                 | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p"
+                 | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x"
+                 | "y" | "z" ;
+
+
+(* ----------------------------------------------------------------
+   KEYWORDS  (reserved — cannot be used as variable names)
+   ---------------------------------------------------------------- *)
+
+keyword        = "factor" | "solve" | "and" ;
+
+
+(* ----------------------------------------------------------------
+   WHITESPACE
+   Whitespace (spaces, tabs) is ignored everywhere except inside
+   number literals. The lexer skips whitespace between tokens.
+   ---------------------------------------------------------------- *)
+
+whitespace     = " " | "\t" | "\n" | "\r" ;
+
+
+(* ----------------------------------------------------------------
+   SUPERSCRIPT DIGITS  (Unicode normalisation — handled in normalizer)
+
+   The normalizer converts Unicode superscript characters to their
+   ASCII '^' equivalents before the lexer runs:
+     ²  →  ^2       ³  →  ^3       ⁴  →  ^4
+     ⁰  →  ^0       ¹  →  ^1
+   These are NOT part of the core grammar; they are surface syntax
+   accepted via the pre-processing normalizer layer.
+   ---------------------------------------------------------------- *)
+
+
+(* ----------------------------------------------------------------
+   OPERATOR SYMBOLS
+   ---------------------------------------------------------------- *)
+
+add_op         = "+" | "-" ;
+mul_op         = "*" | "/" ;
+exp_op         = "^" ;
+eq_op          = "=" ;
+
+
+(* ================================================================
+   EXAMPLE DERIVATIONS
+   ================================================================
+
+   Input:  "factor x^2 + 5x + 6"
+   -------------------------------------------------------
+   program
+     → factor_stmt EOF
+     → "factor" expression EOF
+     → "factor" term + term + term EOF
+     → "factor" (variable ^ number) + (number * variable) + number EOF
+     → "factor" (x ^ 2) + (5 * x) + 6 EOF
+
+   Input:  "solve 2x + y = 5 and x - y = 1"
+   -------------------------------------------------------
+   program
+     → solve_stmt EOF
+     → "solve" equation "and" equation EOF
+     → "solve" (expression = expression) "and" (expression = expression) EOF
+     → "solve" (2*x + y = 5) "and" (x - y = 1) EOF
+
+   ================================================================ *)
