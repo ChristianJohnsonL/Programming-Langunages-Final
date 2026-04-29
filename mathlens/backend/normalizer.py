@@ -1,6 +1,7 @@
 import re
 from typing import Tuple, List
 
+
 _OCR_RULES: List[Tuple[str, str, str]] = [
     (r'×',                      '*',      'Replace × with *'),
     (r'÷',                      '/',      'Replace ÷ with /'),
